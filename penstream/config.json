@@ -1,0 +1,13 @@
+{
+    "port": 9696,
+    "width": 1920,
+    "height": 1080,
+    "fps": 60,
+    "bitrate_kbps": 10000,
+    "encoder": "nvenc",
+    "low_latency": true,
+    "require_pin": false,
+    "pin": "",
+    "fec_strength": 1,
+    "enable_stats": true
+}

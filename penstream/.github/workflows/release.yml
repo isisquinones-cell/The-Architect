@@ -1,0 +1,183 @@
+name: Build & Release
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+    inputs:
+      prerelease:
+        description: "¿Marcar como pre-release?"
+        required: false
+        default: "false"
+        type: choice
+        options:
+          - "true"
+          - "false"
+
+jobs:
+  build-windows:
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup vcpkg
+        shell: pwsh
+        run: |
+          git clone https://github.com/microsoft/vcpkg.git C:\vcpkg
+          C:\vcpkg\bootstrap-vcpkg.bat
+          echo "VCPKG_ROOT=C:\vcpkg" | Out-File -Append -FilePath $env:GITHUB_ENV
+
+      - name: Install dependencies via vcpkg
+        shell: pwsh
+        run: |
+          C:\vcpkg\vcpkg install --triplet x64-windows-static
+
+      - name: Build Windows binary
+        shell: pwsh
+        run: |
+          cmake -S . -B build -G "Visual Studio 17 2022" -A x64 `
+            -DCMAKE_TOOLCHAIN_FILE="C:\vcpkg\scripts\buildsystems\vcpkg.cmake" `
+            -DVCPKG_TARGET_TRIPLET=x64-windows-static
+          cmake --build build --config Release
+
+      - name: Prepare Windows artifact
+        shell: pwsh
+        run: |
+          $candidates = @(
+            "build/bin/Release/penstream_server.exe",
+            "build/bin/penstream_server.exe",
+            "build/Release/penstream_server.exe"
+          )
+          $exePath = $candidates | Where-Object { Test-Path $_ } | Select-Object -First 1
+          if (-not $exePath) {
+            throw "penstream_server.exe was not found in expected paths."
+          }
+          New-Item -ItemType Directory -Path output -Force | Out-Null
+          Copy-Item -LiteralPath $exePath -Destination "output/penstream_server.exe" -Force
+
+          # Copiar DLLs necesarias del runtime de MSVC
+          $vcRedistPath = "C:/Program Files/Microsoft Visual Studio/2022/Enterprise/VC/Redist/MSVC"
+          $redistDlls = Get-ChildItem -Path $vcRedistPath -Recurse -Filter "*.dll" |
+            Where-Object { $_.FullName -match "x64" -and ($_.Name -match "msvcp|vcruntime|concrt") } |
+            Sort-Object LastWriteTime -Descending |
+            Select-Object -First 10
+          foreach ($dll in $redistDlls) {
+            Copy-Item $dll.FullName -Destination "output/" -Force
+          }
+
+          # Copiar config.json
+          Copy-Item "config.json" -Destination "output/config.json" -Force
+
+          # Comprimir todo en un zip
+          Compress-Archive -Path "output/*" -DestinationPath "output/penstream_server.zip" -Force
+
+      - name: Upload Windows artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: penstream-server
+          path: output/penstream_server.exe
+          if-no-files-found: error
+
+  build-android:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Setup Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Install CMake via SDK manager
+        run: |
+          sdkmanager "cmake;3.22.1"
+          echo "ANDROID_CMAKE_PATH=/usr/local/lib/android/sdk/cmake/3.22.1/bin" >> $GITHUB_ENV
+
+      - name: Download Gradle wrapper jar
+        run: |
+          mkdir -p android/gradle/wrapper
+          curl -L -o android/gradle/wrapper/gradle-wrapper.jar \
+            "https://github.com/gradle/gradle/raw/v8.7.0/gradle/wrapper/gradle-wrapper.jar"
+
+      - name: Generate keystore from secrets
+        run: |
+          keytool -genkeypair -v \
+            -keystore android/app/keystore.jks \
+            -alias "${{ secrets.KEY_ALIAS }}" \
+            -keyalg RSA -keysize 2048 \
+            -validity 10000 \
+            -storetype pkcs12 \
+            -storepass "${{ secrets.KEYSTORE_PASSWORD }}" \
+            -keypass "${{ secrets.KEY_PASSWORD }}" \
+            -dname "CN=PenStream, O=PenStream, C=CL"
+
+      - name: Build Android APK (signed release)
+        run: |
+          cd android
+          chmod +x gradlew
+          ./gradlew assembleRelease
+        env:
+          KEYSTORE_PATH: keystore.jks
+          KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
+          KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
+
+      - name: Prepare Android artifact
+        run: |
+          mkdir -p output
+          APK_PATH=$(find android/app/build/outputs/apk/release -maxdepth 1 -type f -name "*.apk" | head -n 1)
+          if [ -z "$APK_PATH" ]; then
+            echo "No release APK found." >&2
+            exit 1
+          fi
+          cp "$APK_PATH" output/penstream.apk
+
+      - name: Upload Android artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: penstream-apk
+          path: output/penstream.apk
+          if-no-files-found: error
+
+  release:
+    needs:
+      - build-windows
+      - build-android
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+      - name: Download Windows artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: penstream-server
+          path: release-assets
+
+      - name: Download Android artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: penstream-apk
+          path: release-assets
+
+      - name: Create release and upload assets
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ github.ref_name }}
+          name: Release ${{ github.ref_name }}
+          draft: false
+          prerelease: ${{ github.event.inputs.prerelease == 'true' }}
+          generate_release_notes: true
+          files: |
+            release-assets/penstream_server.zip
+            release-assets/penstream.apk
+          fail_on_unmatched_files: true

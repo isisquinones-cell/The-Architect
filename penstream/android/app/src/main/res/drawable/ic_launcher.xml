@@ -1,0 +1,25 @@
+<?xml version="1.0" encoding="utf-8"?>
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+
+    <!-- Background circle -->
+    <path
+        android:fillColor="#3B82F6"
+        android:pathData="M54,54m-40,0a40,40 0,1 1,80 0a40,40 0,1 1,-80 0" />
+
+    <!-- Pen icon -->
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M48,38 L68,58 L58,68 L38,48 Z M50,36 L66,52 L70,48 L54,32 Z" />
+
+    <!-- Signal waves -->
+    <path
+        android:strokeColor="#FFFFFF"
+        android:strokeWidth="2"
+        android:fillColor="#00000000"
+        android:pathData="M75,54 Q80,54 83,54 M72,54 Q79,54 86,54" />
+
+</vector>

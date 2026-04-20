@@ -1,0 +1,54 @@
+# Build outputs
+build/
+*/build/
+*/*/build/
+
+# IDE
+.vs/
+.idea/
+*.suo
+*.user
+*.swp
+*.swo
+
+# Compiled files
+*.obj
+*.o
+*.lib
+*.dll
+*.exe
+*.so
+*.a
+
+# APK outputs
+*.apk
+*.aab
+
+# ─── KEYSTORES Y FIRMAS (NUNCA subir a Git) ───
+*.keystore
+*.jks
+keystore_b64.txt
+*_b64.txt
+
+# Logs
+*.log
+
+# Config (puede contener datos sensibles)
+# config.json
+
+# OS files
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# vcpkg
+vcpkg_installed/
+
+# Android
+*.iml
+.gradle/
+local.properties
+
+# Python (si usas scripts)
+__pycache__/
+*.pyc
