@@ -3,10 +3,11 @@ import react from '@vitejs/plugin-react'
 import basicSsl from '@vitejs/plugin-basic-ssl'
 
 export default defineConfig({
+  base: '/The-Architect/',
   plugins: [react(), basicSsl()],
   server: {
-    host: true,   // expose on local network (0.0.0.0)
+    host: true,
     port: 5173,
-    https: true,  // self-signed cert — required for getUserMedia on mobile
+    https: true,
   },
 })
