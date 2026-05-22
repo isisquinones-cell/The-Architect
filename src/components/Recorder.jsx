@@ -80,27 +80,29 @@ export default function Recorder({ onRecordingDone }) {
     clearInterval(timerRef.current)
     cancelAnimationFrame(animFrameRef.current)
     setWavePoints([])
-    streamRef.current?.getTracks().forEach(t => t.stop())
 
     const mr = mediaRecorderRef.current
     if (!mr) return
 
+    // Create AudioContext HERE — inside the button-click user gesture.
+    // On iOS, AudioContext created outside a user gesture stays suspended forever.
+    const ctx = new AudioContext()
+    if (ctx.state === 'suspended') await ctx.resume()
+
     setPhase('analyzing')
     mr.onstop = async () => {
+      // Stop tracks AFTER onstop fires so we don't lose the last audio chunk
+      streamRef.current?.getTracks().forEach(t => t.stop())
       try {
         const usedMime = mr.mimeType || mimeTypeRef.current || 'audio/webm'
         const blob = new Blob(chunksRef.current, { type: usedMime })
         const arrayBuffer = await blob.arrayBuffer()
-        // AudioContext must be created inside a user-gesture callback on iOS
-        const ctx = new AudioContext()
-        // iOS requires resume() before decoding
-        if (ctx.state === 'suspended') await ctx.resume()
         const audioBuffer = await ctx.decodeAudioData(arrayBuffer)
         const notes = await analyzeAudio(audioBuffer)
-        setPhase('done')
-        onRecordingDone(audioBuffer, notes)
+        setPhase(notes.length > 0 ? 'done' : 'empty')
+        if (notes.length > 0) onRecordingDone(audioBuffer, notes)
       } catch (e) {
-        setError('Could not analyze audio. Please try recording again.')
+        setError('Could not analyze audio. Please try again in a quieter environment.')
         setPhase('idle')
       }
     }
@@ -155,6 +157,14 @@ export default function Recorder({ onRecordingDone }) {
             <div className="done-icon">✅</div>
             <p>Melody captured! Head to the Pitch Editor tab.</p>
             <button className="btn-record" onClick={() => { setPhase('idle'); setDuration(0) }}>Record Again</button>
+          </div>
+        )}
+
+        {phase === 'empty' && (
+          <div className="done-state">
+            <div className="done-icon">🔇</div>
+            <p>No notes detected. Try humming louder and closer to your mic, in a quiet room.</p>
+            <button className="btn-record" onClick={() => { setPhase('idle'); setDuration(0) }}>Try Again</button>
           </div>
         )}
 

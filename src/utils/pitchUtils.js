@@ -6,7 +6,7 @@ export function freqToNote(freq) {
   if (!freq || freq < 50) return null
   const semitones = 12 * Math.log2(freq / 440) + 69
   const midi = Math.round(semitones)
-  const noteName = NOTE_NAMES[midi % 12]
+  const noteName = NOTE_NAMES[((midi % 12) + 12) % 12]
   const octave = Math.floor(midi / 12) - 1
   const cents = Math.round((semitones - midi) * 100)
   return { midi, name: noteName, octave, label: `${noteName}${octave}`, cents, freq }
@@ -24,14 +24,13 @@ export function snapToScale(midi, scale = 'chromatic') {
     pentatonic: [0, 2, 4, 7, 9],
   }
   const intervals = scaleIntervals[scale] || scaleIntervals.major
-  const root = midi % 12
+  const root = ((midi % 12) + 12) % 12
   const octave = Math.floor(midi / 12)
   let closest = intervals[0]
   let minDist = Math.abs(root - intervals[0])
   for (const interval of intervals) {
     const dist = Math.abs(root - interval)
     if (dist < minDist) { minDist = dist; closest = interval }
-    // also check wrap-around
     const distWrap = Math.abs(root - (interval + 12))
     if (distWrap < minDist) { minDist = distWrap; closest = interval + 12 }
   }
@@ -44,7 +43,15 @@ export async function analyzeAudio(audioBuffer) {
   const frameSize = 2048
   const hopSize = 512
   const detector = PitchDetector.forFloat32Array(frameSize)
-  const notes = []
+
+  // Compute RMS to scale clarity threshold — quieter input needs looser threshold
+  let sumSq = 0
+  for (let i = 0; i < channelData.length; i++) sumSq += channelData[i] ** 2
+  const rms = Math.sqrt(sumSq / channelData.length)
+  // Lower threshold for quiet recordings; 0.85 is generous enough for humming
+  const clarityThreshold = rms < 0.02 ? 0.80 : 0.85
+
+  const rawNotes = []
   let lastMidi = null
   let noteStart = null
 
@@ -53,34 +60,39 @@ export async function analyzeAudio(audioBuffer) {
     const [freq, clarity] = detector.findPitch(frame, sampleRate)
     const time = i / sampleRate
 
-    if (clarity > 0.9 && freq > 60 && freq < 1200) {
+    if (clarity > clarityThreshold && freq > 60 && freq < 1400) {
       const note = freqToNote(freq)
       if (!note) continue
-      if (note.midi !== lastMidi) {
+      // Treat pitches within 1 semitone as the same note (handles pitch wobble)
+      const samePitch = lastMidi !== null && Math.abs(note.midi - lastMidi) <= 1
+      const effectiveMidi = samePitch ? lastMidi : note.midi
+      if (effectiveMidi !== lastMidi) {
         if (lastMidi !== null && noteStart !== null) {
-          notes.push({ midi: lastMidi, start: noteStart, end: time, duration: time - noteStart, label: freqToNote(midiToFreq(lastMidi))?.label })
+          rawNotes.push({ midi: lastMidi, start: noteStart, end: time, duration: time - noteStart })
         }
-        lastMidi = note.midi
+        lastMidi = effectiveMidi
         noteStart = time
       }
     } else {
-      if (lastMidi !== null && noteStart !== null && time - noteStart > 0.05) {
-        notes.push({ midi: lastMidi, start: noteStart, end: time, duration: time - noteStart, label: freqToNote(midiToFreq(lastMidi))?.label })
+      if (lastMidi !== null && noteStart !== null) {
+        rawNotes.push({ midi: lastMidi, start: noteStart, end: time, duration: time - noteStart })
       }
       lastMidi = null
       noteStart = null
     }
   }
 
-  // merge very short consecutive same-note fragments
+  // Merge consecutive notes that are close in pitch (±1 semitone) and time (<150ms gap)
   const merged = []
-  for (const note of notes) {
+  for (const note of rawNotes) {
+    if (note.duration < 0.07) continue // skip very short blips
     const prev = merged[merged.length - 1]
-    if (prev && prev.midi === note.midi && note.start - prev.end < 0.1) {
+    if (prev && Math.abs(prev.midi - note.midi) <= 1 && note.start - prev.end < 0.15) {
+      // Extend previous note (keep its pitch)
       prev.end = note.end
       prev.duration = prev.end - prev.start
-    } else if (note.duration > 0.08) {
-      merged.push({ ...note })
+    } else {
+      merged.push({ ...note, label: freqToNote(midiToFreq(note.midi))?.label ?? '?' })
     }
   }
   return merged
