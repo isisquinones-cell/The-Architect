@@ -5,7 +5,6 @@ import './PitchEditor.css'
 const NOTE_NAMES = ['C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A', 'A#', 'B']
 const MIN_MIDI = 48
 const MAX_MIDI = 84
-const PIANO_ROLL_HEIGHT = 320
 const SCALES = ['chromatic', 'major', 'minor', 'pentatonic']
 
 function noteColor(midi) {
@@ -22,15 +21,9 @@ export default function PitchEditor({ audioBuffer, notes, correctedNotes, onNote
 
   const totalDuration = audioBuffer?.duration || 1
 
-  function getX(time) {
-    return (time / totalDuration) * 100
-  }
-  function getY(midi) {
-    return ((MAX_MIDI - midi) / (MAX_MIDI - MIN_MIDI)) * 100
-  }
-  function yToMidi(pct) {
-    return Math.round(MAX_MIDI - pct * (MAX_MIDI - MIN_MIDI))
-  }
+  function getX(time) { return (time / totalDuration) * 100 }
+  function getY(midi) { return ((MAX_MIDI - midi) / (MAX_MIDI - MIN_MIDI)) * 100 }
+  function yToMidi(pct) { return Math.round(MAX_MIDI - pct * (MAX_MIDI - MIN_MIDI)) }
 
   function handleAutoTune() {
     const tuned = correctedNotes.map(n => {
@@ -55,12 +48,15 @@ export default function PitchEditor({ audioBuffer, notes, correctedNotes, onNote
     setPitchShift(0)
   }
 
-  const handleMouseDown = useCallback((e, idx) => {
+  // Unified pointer-down: works for mouse and touch via pointer events
+  const handlePointerDown = useCallback((e, idx) => {
     e.preventDefault()
+    // Capture pointer on the SVG so moves/ups are delivered even if pointer leaves the note
+    svgRef.current?.setPointerCapture(e.pointerId)
     setDragging(idx)
   }, [])
 
-  const handleMouseMove = useCallback((e) => {
+  const handlePointerMove = useCallback((e) => {
     if (dragging === null) return
     const svg = svgRef.current
     if (!svg) return
@@ -73,7 +69,7 @@ export default function PitchEditor({ audioBuffer, notes, correctedNotes, onNote
     onNotesChange(updated)
   }, [dragging, correctedNotes, onNotesChange])
 
-  const handleMouseUp = useCallback(() => setDragging(null), [])
+  const handlePointerUp = useCallback(() => setDragging(null), [])
 
   return (
     <div className="pitch-editor">
@@ -101,9 +97,10 @@ export default function PitchEditor({ audioBuffer, notes, correctedNotes, onNote
           className="piano-roll"
           viewBox="0 0 100 100"
           preserveAspectRatio="none"
-          onMouseMove={handleMouseMove}
-          onMouseUp={handleMouseUp}
-          onMouseLeave={handleMouseUp}
+          style={{ touchAction: 'none' }}
+          onPointerMove={handlePointerMove}
+          onPointerUp={handlePointerUp}
+          onPointerLeave={handlePointerUp}
         >
           {/* grid lines */}
           {Array.from({ length: MAX_MIDI - MIN_MIDI + 1 }, (_, i) => {
@@ -133,7 +130,7 @@ export default function PitchEditor({ audioBuffer, notes, correctedNotes, onNote
             />
           ))}
 
-          {/* corrected notes */}
+          {/* corrected notes — pointer events for mouse + touch drag */}
           {correctedNotes.map((n, i) => (
             <g key={`note-${i}`}>
               <rect
@@ -144,7 +141,7 @@ export default function PitchEditor({ audioBuffer, notes, correctedNotes, onNote
                 fill={noteColor(n.midi)}
                 rx="0.5"
                 style={{ cursor: 'ns-resize' }}
-                onMouseDown={e => handleMouseDown(e, i)}
+                onPointerDown={e => handlePointerDown(e, i)}
               />
               <text
                 x={getX(n.start) + 0.3}

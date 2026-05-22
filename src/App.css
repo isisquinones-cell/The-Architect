@@ -88,4 +88,13 @@ body {
   padding: 1.5rem 1rem 3rem;
 }
 
-button { font-family: inherit; }
+button {
+  font-family: inherit;
+  -webkit-tap-highlight-color: transparent;
+  touch-action: manipulation;
+}
+
+/* Prevent double-tap zoom on interactive elements on iOS */
+input[type=range] {
+  touch-action: pan-x;
+}

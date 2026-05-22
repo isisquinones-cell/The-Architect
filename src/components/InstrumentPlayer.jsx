@@ -1,7 +1,13 @@
-import { useState, useRef, useCallback } from 'react'
+import { useState, useRef, useCallback, useEffect } from 'react'
 import * as Tone from 'tone'
 import { midiToFreq } from '../utils/pitchUtils'
 import './InstrumentPlayer.css'
+
+// Convert hex color + alpha (0-1) to 8-digit hex string, works in all browsers
+function withAlpha(hex, alpha) {
+  const a = Math.round(alpha * 255).toString(16).padStart(2, '0')
+  return hex + a
+}
 
 const INSTRUMENTS = [
   {
@@ -9,14 +15,10 @@ const INSTRUMENTS = [
     name: 'Piano',
     icon: '🎹',
     color: '#8b5cf6',
-    make: () => new Tone.Sampler({
-      urls: { A4: 'A4.mp3' },
-      baseUrl: 'https://tonejs.github.io/audio/salamander/',
-      onload: () => {},
-    }).toDestination(),
-    fallback: () => new Tone.PolySynth(Tone.Synth, {
+    // Synth-based piano — no external CDN dependency
+    make: () => new Tone.PolySynth(Tone.Synth, {
       oscillator: { type: 'triangle' },
-      envelope: { attack: 0.02, decay: 0.3, sustain: 0.4, release: 1.2 },
+      envelope: { attack: 0.02, decay: 0.5, sustain: 0.3, release: 1.5 },
     }).toDestination(),
   },
   {
@@ -24,10 +26,10 @@ const INSTRUMENTS = [
     name: 'Strings',
     icon: '🎻',
     color: '#ec4899',
-    make: () => new Tone.PolySynth(Tone.Synth, {
+    // MonoSynth supports filterEnvelope; PolySynth(Synth) does not
+    make: () => new Tone.PolySynth(Tone.MonoSynth, {
       oscillator: { type: 'sawtooth' },
       envelope: { attack: 0.3, decay: 0.1, sustain: 0.9, release: 1.5 },
-      filter: { Q: 2, type: 'lowpass', rolloff: -12 },
       filterEnvelope: { attack: 0.4, decay: 0.2, sustain: 0.5, release: 1.5, baseFrequency: 400, octaves: 2 },
     }).toDestination(),
   },
@@ -67,10 +69,11 @@ const INSTRUMENTS = [
     name: 'Brass',
     icon: '🎺',
     color: '#f97316',
-    make: () => new Tone.PolySynth(Tone.Synth, {
+    // MonoSynth for filter support
+    make: () => new Tone.PolySynth(Tone.MonoSynth, {
       oscillator: { type: 'square' },
       envelope: { attack: 0.15, decay: 0.1, sustain: 0.7, release: 0.5 },
-      filter: { Q: 3, type: 'lowpass', rolloff: -24 },
+      filterEnvelope: { attack: 0.05, decay: 0.2, sustain: 0.5, release: 0.5, baseFrequency: 300, octaves: 3 },
     }).toDestination(),
   },
   {
@@ -106,10 +109,26 @@ export default function InstrumentPlayer({ notes }) {
   const [activeNote, setActiveNote] = useState(null)
   const synthRef = useRef(null)
   const partRef = useRef(null)
+  const endTimerRef = useRef(null)
+  const noteTimersRef = useRef([])
 
   const selected = INSTRUMENTS.find(i => i.id === selectedId)
 
+  // Clean up on unmount
+  useEffect(() => () => {
+    clearTimeout(endTimerRef.current)
+    noteTimersRef.current.forEach(clearTimeout)
+    partRef.current?.stop()
+    partRef.current?.dispose()
+    synthRef.current?.dispose()
+    Tone.getTransport().stop()
+    Tone.getTransport().cancel()
+  }, [])
+
   const stopPlayback = useCallback(() => {
+    clearTimeout(endTimerRef.current)
+    noteTimersRef.current.forEach(clearTimeout)
+    noteTimersRef.current = []
     partRef.current?.stop()
     partRef.current?.dispose()
     partRef.current = null
@@ -142,6 +161,19 @@ export default function InstrumentPlayer({ notes }) {
       duration: Math.max(0.1, n.duration * scaleFactor * 0.9),
     }))
 
+    // Schedule note highlighting using setTimeout — reliable on all platforms
+    const timers = []
+    const transportStartDelay = 0.05 // small buffer for transport startup (seconds)
+    events.forEach(ev => {
+      const onMs = (ev.time + transportStartDelay) * 1000
+      const offMs = onMs + ev.duration * 1000
+      timers.push(
+        setTimeout(() => setActiveNote(ev.midi), onMs),
+        setTimeout(() => setActiveNote(a => a === ev.midi ? null : a), offMs),
+      )
+    })
+    noteTimersRef.current = timers
+
     const part = new Tone.Part((time, ev) => {
       const freq = midiToFreq(ev.midi)
       try {
@@ -151,20 +183,16 @@ export default function InstrumentPlayer({ notes }) {
           synth.triggerAttackRelease(freq, ev.duration, time)
         }
       } catch (_) {}
-      Tone.getDraw().schedule(() => {
-        setActiveNote(ev.midi)
-        setTimeout(() => setActiveNote(null), ev.duration * 1000)
-      }, time)
     }, events)
 
     part.start(0)
     partRef.current = part
 
-    const totalTime = Math.max(...notes.map(n => n.end)) * scaleFactor + 1
-    Tone.getTransport().schedule(() => {
+    const totalMs = (Math.max(...notes.map(n => n.end)) * scaleFactor + 1) * 1000
+    endTimerRef.current = setTimeout(() => {
       setPlaying(false)
       setActiveNote(null)
-    }, totalTime)
+    }, totalMs)
 
     Tone.getTransport().start()
     setPlaying(true)
@@ -181,8 +209,15 @@ export default function InstrumentPlayer({ notes }) {
         {INSTRUMENTS.map(inst => (
           <button
             key={inst.id}
-            className={`instrument-card ${selectedId === inst.id ? 'selected' : ''} ${activeNote !== null && selectedId === inst.id ? 'playing' : ''}`}
-            style={{ '--inst-color': inst.color }}
+            className={`instrument-card ${selectedId === inst.id ? 'selected' : ''} ${playing && selectedId === inst.id ? 'playing' : ''}`}
+            style={{
+              '--inst-color': inst.color,
+              borderColor: selectedId === inst.id ? inst.color : undefined,
+              background: selectedId === inst.id ? withAlpha(inst.color, 0.15) : undefined,
+              boxShadow: selectedId === inst.id
+                ? `0 4px 20px ${withAlpha(inst.color, 0.3)}`
+                : undefined,
+            }}
             onClick={() => { stopPlayback(); setSelectedId(inst.id) }}
           >
             <span className="inst-icon">{inst.icon}</span>
@@ -229,7 +264,11 @@ export default function InstrumentPlayer({ notes }) {
             <span
               key={i}
               className={`note-pill ${activeNote === n.midi ? 'active' : ''}`}
-              style={{ '--inst-color': selected?.color }}
+              style={activeNote === n.midi ? {
+                background: withAlpha(selected?.color || '#8b5cf6', 0.3),
+                borderColor: selected?.color,
+                color: 'white',
+              } : undefined}
             >
               {n.label}
             </span>

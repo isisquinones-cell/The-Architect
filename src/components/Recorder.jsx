@@ -2,17 +2,29 @@ import { useState, useRef, useEffect } from 'react'
 import { analyzeAudio } from '../utils/pitchUtils'
 import './Recorder.css'
 
+function getSupportedMimeType() {
+  if (typeof MediaRecorder === 'undefined') return ''
+  const types = [
+    'audio/webm;codecs=opus',
+    'audio/webm',
+    'audio/mp4;codecs=mp4a.40.2',
+    'audio/mp4',
+    'audio/ogg;codecs=opus',
+  ]
+  return types.find(t => MediaRecorder.isTypeSupported(t)) || ''
+}
+
 export default function Recorder({ onRecordingDone }) {
-  const [phase, setPhase] = useState('idle') // idle | recording | analyzing | done
+  const [phase, setPhase] = useState('idle')
   const [duration, setDuration] = useState(0)
   const [error, setError] = useState(null)
   const [wavePoints, setWavePoints] = useState([])
   const mediaRecorderRef = useRef(null)
   const chunksRef = useRef([])
   const timerRef = useRef(null)
-  const analyserRef = useRef(null)
   const animFrameRef = useRef(null)
   const streamRef = useRef(null)
+  const mimeTypeRef = useRef('')
 
   useEffect(() => () => {
     clearInterval(timerRef.current)
@@ -45,13 +57,16 @@ export default function Recorder({ onRecordingDone }) {
       const analyser = ctx.createAnalyser()
       analyser.fftSize = 256
       source.connect(analyser)
-      analyserRef.current = analyser
 
-      const mr = new MediaRecorder(stream)
+      const mimeType = getSupportedMimeType()
+      mimeTypeRef.current = mimeType
+      const mr = mimeType
+        ? new MediaRecorder(stream, { mimeType })
+        : new MediaRecorder(stream)
       mediaRecorderRef.current = mr
       chunksRef.current = []
-      mr.ondataavailable = e => chunksRef.current.push(e.data)
-      mr.start()
+      mr.ondataavailable = e => { if (e.data.size > 0) chunksRef.current.push(e.data) }
+      mr.start(100) // collect data every 100ms for reliability on iOS
       setPhase('recording')
       setDuration(0)
       timerRef.current = setInterval(() => setDuration(d => d + 1), 1000)
@@ -72,13 +87,22 @@ export default function Recorder({ onRecordingDone }) {
 
     setPhase('analyzing')
     mr.onstop = async () => {
-      const blob = new Blob(chunksRef.current, { type: 'audio/webm' })
-      const arrayBuffer = await blob.arrayBuffer()
-      const ctx = new AudioContext()
-      const audioBuffer = await ctx.decodeAudioData(arrayBuffer)
-      const notes = await analyzeAudio(audioBuffer)
-      setPhase('done')
-      onRecordingDone(audioBuffer, notes)
+      try {
+        const usedMime = mr.mimeType || mimeTypeRef.current || 'audio/webm'
+        const blob = new Blob(chunksRef.current, { type: usedMime })
+        const arrayBuffer = await blob.arrayBuffer()
+        // AudioContext must be created inside a user-gesture callback on iOS
+        const ctx = new AudioContext()
+        // iOS requires resume() before decoding
+        if (ctx.state === 'suspended') await ctx.resume()
+        const audioBuffer = await ctx.decodeAudioData(arrayBuffer)
+        const notes = await analyzeAudio(audioBuffer)
+        setPhase('done')
+        onRecordingDone(audioBuffer, notes)
+      } catch (e) {
+        setError('Could not analyze audio. Please try recording again.')
+        setPhase('idle')
+      }
     }
     mr.stop()
   }
