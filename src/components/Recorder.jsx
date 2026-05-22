@@ -1,0 +1,151 @@
+import { useState, useRef, useEffect } from 'react'
+import { analyzeAudio } from '../utils/pitchUtils'
+import './Recorder.css'
+
+export default function Recorder({ onRecordingDone }) {
+  const [phase, setPhase] = useState('idle') // idle | recording | analyzing | done
+  const [duration, setDuration] = useState(0)
+  const [error, setError] = useState(null)
+  const [wavePoints, setWavePoints] = useState([])
+  const mediaRecorderRef = useRef(null)
+  const chunksRef = useRef([])
+  const timerRef = useRef(null)
+  const analyserRef = useRef(null)
+  const animFrameRef = useRef(null)
+  const streamRef = useRef(null)
+
+  useEffect(() => () => {
+    clearInterval(timerRef.current)
+    cancelAnimationFrame(animFrameRef.current)
+    streamRef.current?.getTracks().forEach(t => t.stop())
+  }, [])
+
+  function drawWave(analyser) {
+    const buf = new Uint8Array(analyser.frequencyBinCount)
+    function loop() {
+      animFrameRef.current = requestAnimationFrame(loop)
+      analyser.getByteTimeDomainData(buf)
+      const pts = []
+      for (let i = 0; i < buf.length; i += 16) {
+        pts.push((buf[i] - 128) / 128)
+      }
+      setWavePoints(pts)
+    }
+    loop()
+  }
+
+  async function startRecording() {
+    setError(null)
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true })
+      streamRef.current = stream
+
+      const ctx = new AudioContext()
+      const source = ctx.createMediaStreamSource(stream)
+      const analyser = ctx.createAnalyser()
+      analyser.fftSize = 256
+      source.connect(analyser)
+      analyserRef.current = analyser
+
+      const mr = new MediaRecorder(stream)
+      mediaRecorderRef.current = mr
+      chunksRef.current = []
+      mr.ondataavailable = e => chunksRef.current.push(e.data)
+      mr.start()
+      setPhase('recording')
+      setDuration(0)
+      timerRef.current = setInterval(() => setDuration(d => d + 1), 1000)
+      drawWave(analyser)
+    } catch (e) {
+      setError('Microphone access denied. Please allow microphone access and try again.')
+    }
+  }
+
+  async function stopRecording() {
+    clearInterval(timerRef.current)
+    cancelAnimationFrame(animFrameRef.current)
+    setWavePoints([])
+    streamRef.current?.getTracks().forEach(t => t.stop())
+
+    const mr = mediaRecorderRef.current
+    if (!mr) return
+
+    setPhase('analyzing')
+    mr.onstop = async () => {
+      const blob = new Blob(chunksRef.current, { type: 'audio/webm' })
+      const arrayBuffer = await blob.arrayBuffer()
+      const ctx = new AudioContext()
+      const audioBuffer = await ctx.decodeAudioData(arrayBuffer)
+      const notes = await analyzeAudio(audioBuffer)
+      setPhase('done')
+      onRecordingDone(audioBuffer, notes)
+    }
+    mr.stop()
+  }
+
+  const fmtTime = s => `${Math.floor(s / 60).toString().padStart(2, '0')}:${(s % 60).toString().padStart(2, '0')}`
+
+  return (
+    <div className="recorder">
+      <div className="recorder-card">
+        <div className="mic-visual">
+          <div className={`mic-ring ${phase === 'recording' ? 'pulsing' : ''}`}>
+            <div className="mic-icon">🎤</div>
+          </div>
+        </div>
+
+        {phase === 'idle' && (
+          <div className="recorder-instructions">
+            <h2>Record Your Melody</h2>
+            <p>Press Record and hum or sing your melody. We'll detect the notes automatically.</p>
+            <button className="btn-record" onClick={startRecording}>Start Recording</button>
+          </div>
+        )}
+
+        {phase === 'recording' && (
+          <div className="recorder-active">
+            <div className="timer">{fmtTime(duration)}</div>
+            <div className="waveform">
+              {wavePoints.map((v, i) => (
+                <div
+                  key={i}
+                  className="wave-bar"
+                  style={{ height: `${Math.max(4, Math.abs(v) * 80)}px` }}
+                />
+              ))}
+            </div>
+            <p className="recording-hint">Hum your melody clearly...</p>
+            <button className="btn-stop" onClick={stopRecording}>Stop &amp; Analyze</button>
+          </div>
+        )}
+
+        {phase === 'analyzing' && (
+          <div className="analyzing">
+            <div className="spinner" />
+            <p>Analyzing your melody...</p>
+          </div>
+        )}
+
+        {phase === 'done' && (
+          <div className="done-state">
+            <div className="done-icon">✅</div>
+            <p>Melody captured! Head to the Pitch Editor tab.</p>
+            <button className="btn-record" onClick={() => { setPhase('idle'); setDuration(0) }}>Record Again</button>
+          </div>
+        )}
+
+        {error && <p className="error">{error}</p>}
+      </div>
+
+      <div className="tips">
+        <h3>Tips for best results</h3>
+        <ul>
+          <li>Use a quiet room with minimal background noise</li>
+          <li>Hum a clear, single-note melody</li>
+          <li>Keep each note for at least 0.2 seconds</li>
+          <li>Stay close to the microphone</li>
+        </ul>
+      </div>
+    </div>
+  )
+}

@@ -1,0 +1,177 @@
+.pitch-editor {
+  display: flex;
+  flex-direction: column;
+  gap: 1.5rem;
+  padding: 1.5rem;
+  max-width: 900px;
+  margin: 0 auto;
+  width: 100%;
+}
+
+.pitch-header h2 { margin: 0; }
+.pitch-sub { color: var(--text-muted); margin: 0.25rem 0 0; font-size: 0.9rem; }
+
+.piano-roll-wrapper {
+  display: flex;
+  background: #0d0d1a;
+  border-radius: 16px;
+  overflow: hidden;
+  height: 320px;
+  box-shadow: 0 4px 30px rgba(0,0,0,0.5);
+}
+
+.piano-keys {
+  width: 42px;
+  flex-shrink: 0;
+  display: flex;
+  flex-direction: column;
+  border-right: 1px solid rgba(255,255,255,0.08);
+}
+
+.piano-key {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  padding-right: 4px;
+  border-bottom: 1px solid rgba(255,255,255,0.04);
+}
+.piano-key.natural { background: rgba(255,255,255,0.04); }
+.piano-key.sharp { background: #0a0a14; }
+.key-label {
+  font-size: 7px;
+  color: rgba(255,255,255,0.4);
+  user-select: none;
+}
+
+.piano-roll {
+  flex: 1;
+  display: block;
+  cursor: default;
+  background: #0f0f1e;
+}
+
+.pitch-controls {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 1rem;
+}
+
+@media (max-width: 600px) {
+  .pitch-controls { grid-template-columns: 1fr; }
+}
+
+.control-group {
+  background: var(--surface);
+  border-radius: 16px;
+  padding: 1.25rem 1.5rem;
+}
+.control-group h3 { margin: 0 0 1rem; font-size: 0.95rem; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.05em; }
+
+.control-row {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  margin-bottom: 0.75rem;
+  flex-wrap: wrap;
+}
+.control-row label {
+  font-size: 0.875rem;
+  color: var(--text-muted);
+  min-width: 120px;
+}
+.val { color: var(--accent); font-weight: 600; }
+
+input[type=range] {
+  flex: 1;
+  accent-color: var(--accent);
+  min-width: 100px;
+}
+
+.scale-buttons { display: flex; gap: 0.4rem; flex-wrap: wrap; }
+.scale-btn {
+  background: rgba(255,255,255,0.06);
+  border: 1px solid rgba(255,255,255,0.1);
+  color: var(--text-muted);
+  padding: 0.3rem 0.75rem;
+  border-radius: 999px;
+  font-size: 0.8rem;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+.scale-btn:hover { background: rgba(139,92,246,0.15); }
+.scale-btn.active { background: var(--accent); border-color: var(--accent); color: white; }
+
+.btn-autotune {
+  background: linear-gradient(135deg, #06b6d4, #3b82f6);
+  color: white;
+  border: none;
+  padding: 0.6rem 1.5rem;
+  border-radius: 999px;
+  font-size: 0.9rem;
+  font-weight: 600;
+  cursor: pointer;
+  width: 100%;
+  margin-top: 0.25rem;
+  transition: opacity 0.15s;
+}
+.btn-autotune:hover { opacity: 0.9; }
+
+.shift-row {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin-bottom: 0.75rem;
+}
+.shift-btn {
+  background: rgba(255,255,255,0.08);
+  border: 1px solid rgba(255,255,255,0.12);
+  color: var(--text);
+  padding: 0.4rem 0.75rem;
+  border-radius: 8px;
+  cursor: pointer;
+  font-size: 0.85rem;
+  font-weight: 600;
+  transition: background 0.15s;
+}
+.shift-btn:hover { background: rgba(139,92,246,0.25); }
+.shift-val {
+  flex: 1;
+  text-align: center;
+  font-weight: 700;
+  color: var(--accent);
+  font-size: 1.1rem;
+}
+.btn-reset {
+  background: transparent;
+  border: 1px solid rgba(255,255,255,0.15);
+  color: var(--text-muted);
+  padding: 0.5rem 1rem;
+  border-radius: 999px;
+  font-size: 0.85rem;
+  cursor: pointer;
+  width: 100%;
+  transition: background 0.15s;
+}
+.btn-reset:hover { background: rgba(255,255,255,0.07); }
+
+.pitch-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0.5rem 0;
+}
+.pitch-note { color: var(--text-muted); font-size: 0.8rem; margin: 0; }
+.btn-continue {
+  background: linear-gradient(135deg, var(--accent), var(--accent2));
+  color: white;
+  border: none;
+  padding: 0.75rem 2rem;
+  border-radius: 999px;
+  font-size: 0.95rem;
+  font-weight: 600;
+  cursor: pointer;
+  box-shadow: 0 4px 20px rgba(139,92,246,0.35);
+  transition: transform 0.15s;
+}
+.btn-continue:hover { transform: translateY(-2px); }
